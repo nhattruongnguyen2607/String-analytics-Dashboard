@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMES · Solar String Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="tab-heatmap">
+<div id="app">
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">☀️</div>
+      <span class="logo-text">CMES Monitor</span>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Views</div>
+      <div class="nav-item active" onclick="switchTab('heatmap')"><span class="nav-icon">🗺</span><span class="nav-label">Heatmap</span></div>
+      <div class="nav-item" onclick="switchTab('analysis')"><span class="nav-icon">📊</span><span class="nav-label">Analysis</span></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Data</div>
+      <div class="nav-item" onclick="switchTab('import')"><span class="nav-icon">📥</span><span class="nav-label">Import Data</span></div>
+      <div class="nav-item" onclick="switchTab('report')"><span class="nav-icon">📄</span><span class="nav-label">Generate Report</span></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">AI</div>
+      <div class="nav-item" onclick="switchTab('ai')"><span class="nav-icon">🤖</span><span class="nav-label">AI Assistant</span></div>
+    </div>
+    <div class="sidebar-spacer"></div>
+  </nav>
+  <div id="main">
+    <div id="topbar">
+      <h1>Solar String Performance</h1>
+      <div class="badge" id="last-updated-badge">—</div>
+      <div class="topbar-spacer"></div>
+      <div class="perf-legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#dc2626"></div>&lt;50%</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>50–70%</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#eab308"></div>70–85%</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#84cc16"></div>85–93%</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#16a34a"></div>≥93%</div>
+      </div>
+      <button class="btn theme-toggle-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+    </div>
+    <div id="controls-bar">
+      <label class="ctrl-label plant-label">Plant</label>
+      <select id="plant-select" onchange="onPlantChange()"></select>
+      <label class="ctrl-label">From</label>
+      <input type="date" id="date-from" onchange="onDateChange()">
+      <label class="ctrl-label">To</label>
+      <input type="date" id="date-to" onchange="onDateChange()">
+      <label class="checkbox-label"><input type="checkbox" id="excl-weekends" onchange="onDateChange()"> Exclude weekends</label>
+      <div style="margin-left:8px;display:flex;align-items:center;gap:8px">
+        <label class="ctrl-label">Deviation &gt;</label>
+        <input type="range" id="threshold-slider" min="0" max="100" value="20" oninput="onThresholdChange(this.value)">
+        <span class="ctrl-val" id="threshold-val">20%</span>
+      </div>
+    </div>
+    <div id="filters-bar">
+      <div class="filter-group" id="filter-roof"></div>
+      <div class="filter-sep" id="fsep-inv"></div>
+      <div class="filter-group" id="filter-inv"></div>
+      <div class="filter-sep" id="fsep-tilt"></div>
+      <div class="filter-group" id="filter-tilt"></div>
+      <div class="filter-sep" id="fsep-az"></div>
+      <div class="filter-group" id="filter-az"></div>
+      <div class="filter-sep" id="fsep-cap"></div>
+      <div class="filter-group" id="filter-cap"></div>
+    </div>
+    <div id="content">
+      <!-- HEATMAP -->
+      <div id="tab-heatmap" class="tab-panel active">
+        <!-- Inline panel header — title + mode toggle + date + legend -->
+        <div class="hm-panel-header">
+          <div class="hm-panel-title" id="hm-panel-title">String Performance Heatmap</div>
+          <div class="hm-mode-row">
+            <div class="heatmap-mode-toggle">
+              <button class="mode-btn active" id="hm-mode-range" onclick="setHmMode('range')">Date range</button>
+              <button class="mode-btn" id="hm-mode-day" onclick="setHmMode('day')">Single day</button>
+            </div>
+            <div class="hm-controls" id="hm-controls-range" style="margin:0">
+              <label class="ctrl-label">FROM</label><input type="date" id="hm-from" onchange="renderHeatmap()">
+              <label class="ctrl-label">TO</label><input type="date" id="hm-to" onchange="renderHeatmap()">
+            </div>
+            <div class="hm-controls" id="hm-controls-day" style="display:none;margin:0">
+              <label class="ctrl-label">DATE</label><input type="date" id="hm-day" onchange="renderHeatmap()">
+            </div>
+            <div class="hm-gradient-legend">
+              <span class="ctrl-label">Low</span>
+              <div class="hm-gradient-bar"></div>
+              <span class="ctrl-label">High</span>
+            </div>
+          </div>
+        </div>
+        <div class="heatmap-wrap" id="heatmap-wrap"><div style="padding:40px;text-align:center;color:var(--text-dim)">Select a plant to view the heatmap</div></div>
+      </div>
+      <!-- ANALYSIS -->
+      <div id="tab-analysis" class="tab-panel">
+        <div class="stats-row" id="stats-row"></div>
+        <div class="charts-row">
+          <div class="chart-card">
+            <div class="chart-title">Performance Trend
+              <div class="chart-toggle">
+                <button class="chart-toggle-btn active" id="trend-inv-btn" onclick="setTrendMode('inverter')">By Inverter</button>
+                <button class="chart-toggle-btn" id="trend-str-btn" onclick="setTrendMode('strings')">Individual</button>
+              </div>
+            </div>
+            <div class="chart-container"><canvas id="trend-chart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Performance Distribution
+              <div class="chart-toggle">
+                <button class="chart-toggle-btn active" id="dist-cap-btn" onclick="setDistMode('capacity')">By Capacity</button>
+                <button class="chart-toggle-btn" id="dist-az-btn" onclick="setDistMode('azimuth')">By Azimuth</button>
+              </div>
+            </div>
+            <div class="chart-container"><canvas id="dist-chart"></canvas></div>
+          </div>
+        </div>
+        <div class="section-header">String Detail</div>
+        <div class="table-controls">
+          <input type="text" class="search-input" id="table-search" placeholder="Search by label…" oninput="renderTable()">
+          <label class="checkbox-label"><input type="checkbox" id="show-blacklisted" onchange="renderTable()"> Show blacklisted</label>
+          <label class="checkbox-label"><input type="checkbox" id="highlight-under" checked onchange="renderTable()"> Highlight deviating</label>
+        </div>
+        <div class="table-wrap"><table class="string-table"><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
+      </div>
+      <!-- IMPORT -->
+      <div id="tab-import" class="tab-panel">
+        <div class="active-dataset-banner">🗄️ <span id="dataset-info">Loading…</span>
+          <button class="btn" onclick="openClearModal()" style="margin-left:auto;border-color:rgba(239,68,68,0.4);color:var(--accent-danger);font-size:11px;padding:4px 10px">🗑️ Xóa tất cả dữ liệu</button>
+        </div>
+        <!-- Clear All Confirmation Modal -->
+        <div class="modal-overlay" id="clear-modal">
+          <div class="modal">
+            <h3>🗑️ Xóa tất cả dữ liệu</h3>
+            <p>Thao tác này sẽ xóa toàn bộ dữ liệu đã nhập, lịch sử import, ghi chú và danh sách đen. Dữ liệu mẫu mặc định sẽ được khôi phục.<br><br>Bạn có chắc chắn muốn tiếp tục?</p>
+            <div class="modal-actions">
+              <button class="btn" onclick="closeClearModal()">Hủy</button>
+              <button class="btn primary" style="background:var(--accent-danger);border-color:var(--accent-danger)" onclick="confirmClearAll()">Xóa tất cả</button>
+            </div>
+          </div>
+        </div>
+        <div class="import-grid">
+          <div class="import-card">
+            <h3>📥 Append Data</h3><div class="sub">New strings/dates merged; duplicates skipped</div>
+            <div class="drop-zone" id="drop-append">
+              <input type="file" class="drop-input" id="file-append" accept=".xlsx,.xls,.csv" onchange="handleFile(event,'append')">
+              <div class="drop-icon">📂</div><div class="drop-text"><strong>Click or drag</strong> Excel / CSV</div>
+            </div>
+            <div class="import-status" id="status-append"></div>
+          </div>
+          <div class="import-card">
+            <h3>🔄 Replace Data</h3><div class="sub">Current dataset archived before replacement</div>
+            <div class="drop-zone" id="drop-replace">
+              <input type="file" class="drop-input" id="file-replace" accept=".xlsx,.xls,.csv" onchange="handleFile(event,'replace')">
+              <div class="drop-icon">📂</div><div class="drop-text"><strong>Click or drag</strong> Excel / CSV</div>
+            </div>
+            <div class="import-status" id="status-replace"></div>
+          </div>
+        </div>
+        <div class="section-header">Import History</div>
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead><tr><th>Timestamp</th><th>Type</th><th>Filename</th><th>Strings</th><th>Date Range</th><th>Action</th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- AI ASSISTANT -->
+      <div id="tab-ai" class="tab-panel">
+        <div class="ai-panel">
+          <div class="ai-key-bar">
+            <span class="ctrl-label">OpenAI API Key</span>
+            <input type="password" id="ai-api-key" placeholder="sk-…" autocomplete="off" oninput="saveAIKey()">
+            <span class="ai-key-hint" id="ai-key-hint"></span>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              <label class="ctrl-label">Drop threshold</label>
+              <input type="number" id="anomaly-threshold" value="15" min="1" max="50" style="width:52px;padding:4px 6px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;font-family:var(--font-mono)">
+              <span class="ctrl-label">pp</span>
+              <button class="btn" onclick="runAnomalyCheck()" title="Scan all strings for sudden day-over-day drops">🔍 Scan Anomalies</button>
+            </div>
+          </div>
+          <div class="ai-context-bar" id="ai-context-bar">No data loaded</div>
+          <div class="ai-messages" id="ai-messages">
+            <div class="ai-welcome">
+              <div class="ai-welcome-icon">🤖</div>
+              <div class="ai-welcome-title">AI Assistant</div>
+              <div class="ai-welcome-sub">Ask questions about your solar string data in plain English.<br>e.g. <em>"Which strings have been below 70% for more than 3 days?"</em><br>or <em>"Compare inverter 1 vs inverter 2 performance."</em></div>
+            </div>
+          </div>
+          <div class="ai-input-row">
+            <textarea id="ai-input" class="ai-textarea" placeholder="Ask about your data…" rows="2" onkeydown="onAIKeydown(event)"></textarea>
+            <button class="btn primary ai-send-btn" id="ai-send-btn" onclick="sendAIMessage()">Send</button>
+          </div>
+        </div>
+      </div>
+      <!-- REPORT -->
+      <div id="tab-report" class="tab-panel">
+        <div class="report-container">
+          <div class="report-header">
+            <h2>📄 Generate PDF Report</h2>
+            <span class="badge">Export</span>
+          </div>
+          
+          <div class="report-config">
+            <div class="report-config-card">
+              <h4>📍 Plant Selection</h4>
+              <div class="report-config-row">
+                <label>Plant</label>
+                <select id="report-plant" onchange="onReportConfigChange()"></select>
+              </div>
+            </div>
+            <div class="report-config-card">
+              <h4>📅 Time Period</h4>
+              <div class="report-config-row">
+                <label>From</label>
+                <input type="date" id="report-from" onchange="onReportConfigChange()">
+              </div>
+              <div class="report-config-row">
+                <label>To</label>
+                <input type="date" id="report-to" onchange="onReportConfigChange()">
+              </div>
+            </div>
+            <div class="report-config-card">
+              <h4>⚙️ Options</h4>
+              <div class="report-config-row">
+                <label class="checkbox-label"><input type="checkbox" id="report-excl-weekends"> Exclude weekends</label>
+              </div>
+              <div class="report-config-row">
+                <label class="checkbox-label"><input type="checkbox" id="report-excl-blacklisted" checked> Exclude blacklisted</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="report-preview">
+            <div class="report-preview-title">📊 Report Preview</div>
+            
+            <div class="report-charts-grid">
+              <div class="report-chart-box">
+                <h5>1. Performance Trend (Individual)</h5>
+                <div class="report-chart-container"><canvas id="report-trend-chart"></canvas></div>
+              </div>
+              <div class="report-chart-box">
+                <h5>2. Performance Distribution (By Capacity)</h5>
+                <div class="report-chart-container"><canvas id="report-dist-cap-chart"></canvas></div>
+              </div>
+              <div class="report-chart-box">
+                <h5>3. Performance Distribution (By Azimuth)</h5>
+                <div class="report-chart-container"><canvas id="report-dist-az-chart"></canvas></div>
+              </div>
+              <div class="report-chart-box">
+                <h5>4. String Details Summary</h5>
+                <div id="report-summary-stats" style="display:flex;flex-wrap:wrap;gap:10px;padding:10px 0"></div>
+              </div>
+            </div>
+
+            <div class="report-preview-title">📋 String Details (Lowest Performing First)</div>
+            <div class="report-table-preview">
+              <table>
+                <thead id="report-table-head"></thead>
+                <tbody id="report-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="report-actions">
+            <button class="btn generate" id="generate-pdf-btn" onclick="generatePDFReport()">
+              📄 Generate PDF Report
+            </button>
+            <span class="report-status" id="report-status"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="bl-modal">
+  <div class="modal">
+    <h3>⊘ Blacklist String</h3>
+    <p id="bl-modal-str">Enter a reason:</p>
+    <div class="modal-body"><input type="text" id="bl-reason" placeholder="e.g. Shading issue, hardware fault…"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="confirmBlacklist()">Confirm</button>
+    </div>
+  </div>
+</div>
+<!-- Scrollable chart tooltip -->
+<div id="chart-tooltip">
+  <div id="chart-tooltip-title"></div>
+  <div id="chart-tooltip-body"></div>
+  <div id="chart-tooltip-footer" class="tt-footer" style="display:none"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
